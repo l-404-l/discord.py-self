@@ -4419,6 +4419,15 @@ class HTTPClient:
     def get_application_commands(self, app_id: Snowflake) -> Response[List[command.ApplicationCommand]]:
         return self.request(Route('GET', '/applications/{application_id}/commands', application_id=app_id))
 
+    def get_application_commands_dm(
+        self,
+        channel_id: Snowflake
+    ) -> Response[command.ApplicationCommand]:
+
+        return self.request(
+            Route('GET', '/channels/{channel_id}/application-command-index', channel_id=channel_id)
+        )
+
     def search_application_commands(
         self,
         channel_id: Snowflake,

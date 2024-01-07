@@ -234,6 +234,7 @@ async def _handle_commands(
         if not recipient.bot:
             raise TypeError('Cannot fetch commands in a DM with a non-bot user')
         application_id = recipient.id
+        endpoint = state.http.get_application_commands_dm
         target = recipient
     elif channel.type == ChannelType.group:
         return
@@ -249,18 +250,24 @@ async def _handle_commands(
         if (not cmd_ids and retrieve < 1) or cursor is None or (prev_cursor is not MISSING and prev_cursor == cursor):
             return
 
-        data = await endpoint(
-            channel.id,
-            type.value,
-            limit=retrieve if not application_id else None,
-            query=query if not cmd_ids and not application_id else None,
-            command_ids=cmd_ids if not application_id and not cursor else None,  # type: ignore
-            application_id=application_id,
-            include_applications=with_applications if (not application_id or with_applications) else None,
-            cursor=cursor,
-        )
-        prev_cursor = cursor
-        cursor = data['cursor'].get('next')
+        if channel.type == ChannelType.private:
+            data = await endpoint(
+                channel.id,
+            )
+        else:
+            data = await endpoint(
+                channel.id,
+                type.value,
+                limit=retrieve if not application_id else None,
+                query=query if not cmd_ids and not application_id else None,
+                command_ids=cmd_ids if not application_id and not cursor else None,  # type: ignore
+                application_id=application_id,
+                include_applications=with_applications if (not application_id or with_applications) else None,
+                cursor=cursor,
+            )
+            prev_cursor = cursor
+            cursor = data['cursor'].get('next')
+
         cmds = data['application_commands']
         apps = {int(app['id']): state.create_integration_application(app) for app in data.get('applications') or []}
 
@@ -2481,6 +2488,77 @@ class Messageable:
             command_ids=command_ids,
             application=application,
             with_applications=with_applications,
+        )
+
+    def dm_slash_commands(self,
+                           query: Optional[str] = None,
+                           *,
+                           limit: Optional[int] = None,
+                           command_ids: Optional[Collection[int]] = None,
+                           application: Optional[Snowflake] = None,
+                           ):
+        """Returns a :term:`asynchronous iterator` of the slash commands available in the channel.
+
+        Examples
+        ---------
+
+        Usage ::
+
+            async for command in channel.slash_commands():
+                print(command.name)
+
+        Flattening into a list ::
+
+            commands = [command async for command in channel.slash_commands()]
+            # commands is now a list of SlashCommand...
+
+        All parameters are optional.
+
+        Parameters
+        ----------
+        query: Optional[:class:`str`]
+            The query to search for. Specifying this limits results to 25 commands max.
+
+            This parameter is faked if ``application`` is specified.
+        limit: Optional[:class:`int`]
+            The maximum number of commands to send back. Defaults to 0 if ``command_ids`` is passed, else 25.
+            If ``None``, returns all commands.
+
+            This parameter is faked if ``application`` is specified.
+        command_ids: Optional[List[:class:`int`]]
+            List of up to 100 command IDs to search for. If the command doesn't exist, it won't be returned.
+
+            If ``limit`` is passed alongside this parameter, this parameter will serve as a "preferred commands" list.
+            This means that the endpoint will return the found commands + up to ``limit`` more, if available.
+        application: Optional[:class:`~discord.abc.Snowflake`]
+            Whether to return this application's commands. Always set to DM recipient in a private channel context.
+
+        Raises
+        ------
+        TypeError
+            Both query and command_ids are passed.
+            Attempted to fetch commands in a DM with a non-bot user.
+        ValueError
+            The limit was not greater than or equal to 0.
+        HTTPException
+            Getting the commands failed.
+        ~discord.Forbidden
+            You do not have permissions to get the commands.
+        ~discord.HTTPException
+            The request to get the commands failed.
+
+        Yields
+        -------
+        :class:`~discord.SlashCommand`
+            A slash command.
+        """
+        return _handle_application_commands(
+            self,
+            ApplicationCommandType.chat_input,
+            query=query,
+            limit=limit,
+            command_ids=command_ids,
+            application=application,
         )
 
     def user_commands(
