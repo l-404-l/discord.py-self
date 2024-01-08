@@ -234,6 +234,7 @@ async def _handle_commands(
         if not recipient.bot:
             raise TypeError('Cannot fetch commands in a DM with a non-bot user')
         application_id = recipient.id
+        endpoint = state.http.get_application_commands_dm
         target = recipient
     elif channel.type == ChannelType.group:
         return
@@ -249,18 +250,24 @@ async def _handle_commands(
         if (not cmd_ids and retrieve < 1) or cursor is None or (prev_cursor is not MISSING and prev_cursor == cursor):
             return
 
-        data = await endpoint(
-            channel.id,
-            type.value,
-            limit=retrieve if not application_id else None,
-            query=query if not cmd_ids and not application_id else None,
-            command_ids=cmd_ids if not application_id and not cursor else None,  # type: ignore
-            application_id=application_id,
-            include_applications=with_applications if (not application_id or with_applications) else None,
-            cursor=cursor,
-        )
-        prev_cursor = cursor
-        cursor = data['cursor'].get('next')
+        if channel.type == ChannelType.private:
+            data = await endpoint(
+                channel.id,
+            )
+        else:
+            data = await endpoint(
+                channel.id,
+                type.value,
+                limit=retrieve if not application_id else None,
+                query=query if not cmd_ids and not application_id else None,
+                command_ids=cmd_ids if not application_id and not cursor else None,  # type: ignore
+                application_id=application_id,
+                include_applications=with_applications if (not application_id or with_applications) else None,
+                cursor=cursor,
+            )
+            prev_cursor = cursor
+            cursor = data['cursor'].get('next')
+
         cmds = data['application_commands']
         apps = {int(app['id']): state.create_integration_application(app) for app in data.get('applications') or []}
 
