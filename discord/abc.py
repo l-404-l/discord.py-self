@@ -109,7 +109,8 @@ if TYPE_CHECKING:
         SnowflakeList,
     )
 
-    MessageableChannel = Union[TextChannel, VoiceChannel, StageChannel, Thread, DMChannel, PartialMessageable, GroupChannel]
+    MessageableChannel = Union[
+        TextChannel, VoiceChannel, StageChannel, Thread, DMChannel, PartialMessageable, GroupChannel]
     VocalChannel = Union[VoiceChannel, StageChannel, DMChannel, GroupChannel]
     SnowflakeTime = Union["Snowflake", datetime]
 
@@ -125,15 +126,15 @@ _undefined: Any = _Undefined()
 
 
 async def _purge_helper(
-    channel: Union[Thread, TextChannel, VocalGuildChannel],
-    *,
-    limit: Optional[int] = 100,
-    check: Callable[[Message], bool] = MISSING,
-    before: Optional[SnowflakeTime] = None,
-    after: Optional[SnowflakeTime] = None,
-    around: Optional[SnowflakeTime] = None,
-    oldest_first: Optional[bool] = None,
-    reason: Optional[str] = None,
+        channel: Union[Thread, TextChannel, VocalGuildChannel],
+        *,
+        limit: Optional[int] = 100,
+        check: Callable[[Message], bool] = MISSING,
+        before: Optional[SnowflakeTime] = None,
+        after: Optional[SnowflakeTime] = None,
+        around: Optional[SnowflakeTime] = None,
+        oldest_first: Optional[bool] = None,
+        reason: Optional[str] = None,
 ) -> List[Message]:
     if check is MISSING:
         check = lambda m: True
@@ -160,62 +161,55 @@ async def _purge_helper(
     await state._delete_messages(channel_id, to_delete, reason=reason)
     return ret
 
-
 @overload
-def _handle_commands(
-    messageable: Messageable,
-    type: Literal[ApplicationCommandType.chat_input],
-    *,
-    query: Optional[str] = ...,
-    limit: Optional[int] = ...,
-    command_ids: Optional[Collection[int]] = ...,
-    application: Optional[Snowflake] = ...,
-    with_applications: bool = ...,
-    target: Optional[Snowflake] = ...,
+def _handle_application_commands(
+        messageable: Union[Messageable, Message],
+        type: Literal[ApplicationCommandType.chat_input],
+        *,
+        query: Optional[str, Collection[str]] = ...,
+        command_ids: Optional[int, Collection[int]] = ...,
+        limit: Optional[int] = ...,
+        application: Optional[Snowflake] = ...,
+        target: Optional[Snowflake] = ...,
 ) -> AsyncIterator[SlashCommand]:
     ...
 
-
 @overload
-def _handle_commands(
-    messageable: Messageable,
-    type: Literal[ApplicationCommandType.user],
-    *,
-    query: Optional[str] = ...,
-    limit: Optional[int] = ...,
-    command_ids: Optional[Collection[int]] = ...,
-    application: Optional[Snowflake] = ...,
-    with_applications: bool = ...,
-    target: Optional[Snowflake] = ...,
+def _handle_application_commands(
+        messageable: Union[Messageable, Message],
+        type: Literal[ApplicationCommandType.user],
+        *,
+        query: Optional[str, Collection[str]] = ...,
+        command_ids: Optional[int, Collection[int]] = ...,
+        limit: Optional[int] = ...,
+        application: Optional[Snowflake] = ...,
+        target: Optional[Snowflake] = ...,
 ) -> AsyncIterator[UserCommand]:
     ...
 
-
 @overload
-def _handle_commands(
-    messageable: Message,
-    type: Literal[ApplicationCommandType.message],
-    *,
-    query: Optional[str] = ...,
-    limit: Optional[int] = ...,
-    command_ids: Optional[Collection[int]] = ...,
-    application: Optional[Snowflake] = ...,
-    with_applications: bool = ...,
-    target: Optional[Snowflake] = ...,
+def _handle_application_commands(
+        messageable: Union[Messageable, Message],
+        type: Literal[ApplicationCommandType.message],
+        *,
+        query: Optional[str, Collection[str]] = ...,
+        command_ids: Optional[int, Collection[int]] = ...,
+        limit: Optional[int] = ...,
+        application: Optional[Snowflake] = ...,
+        target: Optional[Snowflake] = ...,
 ) -> AsyncIterator[MessageCommand]:
     ...
 
 
-async def _handle_commands(
-    messageable: Union[Messageable, Message],
-    type: ApplicationCommandType,
-    *,
-    query: Optional[str] = None,
-    limit: Optional[int] = None,
-    command_ids: Optional[Collection[int]] = None,
-    application: Optional[Snowflake] = None,
-    with_applications: bool = True,
-    target: Optional[Snowflake] = None,
+async def _handle_application_commands(
+        messageable: Union[Messageable, Message],
+        type: ApplicationCommandType,
+        *,
+        query: Optional[str, Collection[str]] = None,
+        command_ids: Optional[int, Collection[int]] = None,
+        limit: Optional[int] = None,
+        application: Optional[Snowflake] = None,
+        target: Optional[Snowflake] = None,
 ) -> AsyncIterator[BaseCommand]:
     if limit is not None and limit < 0:
         raise ValueError('limit must be greater than or equal to 0')
@@ -223,10 +217,17 @@ async def _handle_commands(
         raise TypeError('Cannot specify both query and command_ids')
 
     state = messageable._state
-    endpoint = state.http.search_application_commands
     channel = await messageable._get_channel()
+
+    endpoint = state.http.get_application_commands_guild if channel.guild else state.http.get_application_commands_dm
+
     _, cls = _command_factory(type.value)
-    cmd_ids = list(command_ids) if command_ids else None
+
+    cmd_ids = None if command_ids is None else ([command_ids] if isinstance(command_ids, int) else list(command_ids))
+    search_query = None if query is None else (query.lower().split(",") if isinstance(query, str) else list(query))
+
+    print(f'CMD LIST: {cmd_ids}')
+    print(f'SEARCH LIST: {search_query}')
 
     application_id = application.id if application else None
     if channel.type == ChannelType.private:
@@ -234,91 +235,68 @@ async def _handle_commands(
         if not recipient.bot:
             raise TypeError('Cannot fetch commands in a DM with a non-bot user')
         application_id = recipient.id
-        endpoint = state.http.get_application_commands_dm
         target = recipient
     elif channel.type == ChannelType.group:
-        return
+        raise TypeError('Cannot fetch commands in a Group Channel with a non-bot users')
 
-    prev_cursor = MISSING
-    cursor = MISSING
-    while True:
-        # We keep two cursors because Discord just sends us an infinite loop sometimes
-        retrieve = min((25 if not cmd_ids else 0) if limit is None else limit, 25)
+    data = await endpoint(channel.guild.id if channel.guild else channel.id)
 
-        if not application_id and limit is not None:
-            limit -= retrieve
-        if (not cmd_ids and retrieve < 1) or cursor is None or (prev_cursor is not MISSING and prev_cursor == cursor):
-            return
+    cmds = data['application_commands']
+    apps = {int(app['id']): state.create_integration_application(app) for app in data.get('applications') or []}
 
-        if channel.type == ChannelType.private:
-            data = await endpoint(
-                channel.id,
-            )
-        else:
-            data = await endpoint(
-                channel.id,
-                type.value,
-                limit=retrieve if not application_id else None,
-                query=query if not cmd_ids and not application_id else None,
-                command_ids=cmd_ids if not application_id and not cursor else None,  # type: ignore
-                application_id=application_id,
-                include_applications=with_applications if (not application_id or with_applications) else None,
-                cursor=cursor,
-            )
-            prev_cursor = cursor
-            cursor = data['cursor'].get('next')
+    for cmd in cmds:
 
-        cmds = data['application_commands']
-        apps = {int(app['id']): state.create_integration_application(app) for app in data.get('applications') or []}
+        if int(cmd['type']) != type.value:
+            continue
 
-        for cmd in cmds:
-            # Handle faked parameters
-            if application_id and query and query.lower() not in cmd['name']:
-                continue
-            elif application_id and (not cmd_ids or int(cmd['id']) not in cmd_ids) and limit == 0:
-                continue
+        appid = int(cmd['application_id'])
+        cmdid = int(cmd['id'])
 
-            # We follow Discord behavior
-            if application_id and limit is not None and (not cmd_ids or int(cmd['id']) not in cmd_ids):
-                limit -= 1
+        if search_query and cmd['name'] not in search_query:
+            continue
 
-            try:
-                cmd_ids.remove(int(cmd['id'])) if cmd_ids else None
-            except ValueError:
-                pass
+        if cmd_ids and cmdid not in cmd_ids:
+            continue
 
-            application = apps.get(int(cmd['application_id']))
-            yield cls(state=state, data=cmd, channel=channel, target=target, application=application)
+        if application_id and application_id != appid:
+            continue
 
-        cmd_ids = None
-        if application_id or len(cmds) < min(limit if limit else 25, 25) or len(cmds) == limit == 25:
-            return
+        application = apps.get(appid)
+        yield cls(state=state, data=cmd, channel=channel, target=target, application=application)
+
+        if limit:
+            limit -= 1
+            if limit == 0:
+                break
+
+    cmd_ids = None
+    search_query = None
 
 
 async def _handle_message_search(
-    destination: Union[Messageable, Guild],
-    *,
-    limit: Optional[int] = 25,
-    offset: int = 0,
-    before: SnowflakeTime = MISSING,
-    after: SnowflakeTime = MISSING,
-    include_nsfw: bool = MISSING,
-    content: str = MISSING,
-    channels: Collection[Snowflake] = MISSING,
-    authors: Collection[Snowflake] = MISSING,
-    author_types: Collection[MessageSearchAuthorType] = MISSING,
-    mentions: Collection[Snowflake] = MISSING,
-    mention_everyone: bool = MISSING,
-    pinned: bool = MISSING,
-    has: Collection[MessageSearchHasType] = MISSING,
-    embed_types: Collection[EmbedType] = MISSING,
-    embed_providers: Collection[str] = MISSING,
-    link_hostnames: Collection[str] = MISSING,
-    attachment_filenames: Collection[str] = MISSING,
-    attachment_extensions: Collection[str] = MISSING,
-    application_commands: Collection[Snowflake] = MISSING,
-    oldest_first: bool = False,
-    most_relevant: bool = False,
+        destination: Union[Messageable, Guild],
+        *,
+        limit: Optional[int] = 25,
+        offset: int = 0,
+        before: SnowflakeTime = MISSING,
+        after: SnowflakeTime = MISSING,
+        include_nsfw: bool = MISSING,
+        content: str = MISSING,
+        channels: Collection[Snowflake] = MISSING,
+        authors: Collection[Snowflake] = MISSING,
+        author_types: Collection[MessageSearchAuthorType] = MISSING,
+        mentions: Collection[Snowflake] = MISSING,
+        mention_everyone: bool = MISSING,
+        pinned: bool = MISSING,
+        has: Collection[MessageSearchHasType] = MISSING,
+        embed_types: Collection[EmbedType] = MISSING,
+        embed_providers: Collection[str] = MISSING,
+        link_hostnames: Collection[str] = MISSING,
+        attachment_filenames: Collection[str] = MISSING,
+        attachment_extensions: Collection[str] = MISSING,
+        application_commands: Collection[Snowflake] = MISSING,
+        oldest_first: bool = False,
+        most_relevant: bool = False,
 ) -> AsyncIterator[Message]:
     from .channel import PartialMessageable  # circular import
 
@@ -360,10 +338,10 @@ async def _handle_message_search(
     if isinstance(after, datetime):
         after = Object(id=utils.time_snowflake(after, high=True))
     if (
-        include_nsfw is MISSING
-        and not isinstance(destination, Messageable)
-        and _state.user
-        and _state.user.nsfw_allowed is not None
+            include_nsfw is MISSING
+            and not isinstance(destination, Messageable)
+            and _state.user
+            and _state.user.nsfw_allowed is not None
     ):
         include_nsfw = _state.user.nsfw_allowed
 
@@ -650,7 +628,6 @@ class GuildChannel:
     _overwrites: List[_Overwrites]
 
     if TYPE_CHECKING:
-
         def __init__(self, *, state: ConnectionState, guild: Guild, data: GuildChannelPayload):
             ...
 
@@ -665,12 +642,12 @@ class GuildChannel:
         raise NotImplementedError
 
     async def _move(
-        self,
-        position: int,
-        parent_id: Optional[Any] = None,
-        lock_permissions: bool = False,
-        *,
-        reason: Optional[str],
+            self,
+            position: int,
+            parent_id: Optional[Any] = None,
+            lock_permissions: bool = False,
+            *,
+            reason: Optional[str],
     ) -> None:
         if position < 0:
             raise ValueError('Channel position cannot be less than 0.')
@@ -1122,31 +1099,31 @@ class GuildChannel:
 
     @overload
     async def set_permissions(
-        self,
-        target: Union[Member, Role],
-        *,
-        overwrite: Optional[Union[PermissionOverwrite, _Undefined]] = ...,
-        reason: Optional[str] = ...,
+            self,
+            target: Union[Member, Role],
+            *,
+            overwrite: Optional[Union[PermissionOverwrite, _Undefined]] = ...,
+            reason: Optional[str] = ...,
     ) -> None:
         ...
 
     @overload
     async def set_permissions(
-        self,
-        target: Union[Member, Role],
-        *,
-        reason: Optional[str] = ...,
-        **permissions: Optional[bool],
+            self,
+            target: Union[Member, Role],
+            *,
+            reason: Optional[str] = ...,
+            **permissions: Optional[bool],
     ) -> None:
         ...
 
     async def set_permissions(
-        self,
-        target: Union[Member, Role],
-        *,
-        overwrite: Any = _undefined,
-        reason: Optional[str] = None,
-        **permissions: Optional[bool],
+            self,
+            target: Union[Member, Role],
+            *,
+            overwrite: Any = _undefined,
+            reason: Optional[str] = None,
+            **permissions: Optional[bool],
     ) -> None:
         r"""|coro|
 
@@ -1257,11 +1234,11 @@ class GuildChannel:
             raise TypeError('Invalid overwrite type provided.')
 
     async def _clone_impl(
-        self,
-        base_attrs: Dict[str, Any],
-        *,
-        name: Optional[str] = None,
-        reason: Optional[str] = None,
+            self,
+            base_attrs: Dict[str, Any],
+            *,
+            name: Optional[str] = None,
+            reason: Optional[str] = None,
     ) -> Self:
         base_attrs['permission_overwrites'] = [x._asdict() for x in self._overwrites]
         base_attrs['parent_id'] = self.category_id
@@ -1309,49 +1286,49 @@ class GuildChannel:
 
     @overload
     async def move(
-        self,
-        *,
-        beginning: bool,
-        offset: int = MISSING,
-        category: Optional[Snowflake] = MISSING,
-        sync_permissions: bool = MISSING,
-        reason: Optional[str] = MISSING,
+            self,
+            *,
+            beginning: bool,
+            offset: int = MISSING,
+            category: Optional[Snowflake] = MISSING,
+            sync_permissions: bool = MISSING,
+            reason: Optional[str] = MISSING,
     ) -> None:
         ...
 
     @overload
     async def move(
-        self,
-        *,
-        end: bool,
-        offset: int = MISSING,
-        category: Optional[Snowflake] = MISSING,
-        sync_permissions: bool = MISSING,
-        reason: str = MISSING,
+            self,
+            *,
+            end: bool,
+            offset: int = MISSING,
+            category: Optional[Snowflake] = MISSING,
+            sync_permissions: bool = MISSING,
+            reason: str = MISSING,
     ) -> None:
         ...
 
     @overload
     async def move(
-        self,
-        *,
-        before: Snowflake,
-        offset: int = MISSING,
-        category: Optional[Snowflake] = MISSING,
-        sync_permissions: bool = MISSING,
-        reason: str = MISSING,
+            self,
+            *,
+            before: Snowflake,
+            offset: int = MISSING,
+            category: Optional[Snowflake] = MISSING,
+            sync_permissions: bool = MISSING,
+            reason: str = MISSING,
     ) -> None:
         ...
 
     @overload
     async def move(
-        self,
-        *,
-        after: Snowflake,
-        offset: int = MISSING,
-        category: Optional[Snowflake] = MISSING,
-        sync_permissions: bool = MISSING,
-        reason: str = MISSING,
+            self,
+            *,
+            after: Snowflake,
+            offset: int = MISSING,
+            category: Optional[Snowflake] = MISSING,
+            sync_permissions: bool = MISSING,
+            reason: str = MISSING,
     ) -> None:
         ...
 
@@ -1438,14 +1415,14 @@ class GuildChannel:
                 ch
                 for ch in self.guild.channels
                 if ch._sorting_bucket == bucket
-                and ch.category_id == parent_id
+                   and ch.category_id == parent_id
             ]
         else:
             channels = [
                 ch
                 for ch in self.guild.channels
                 if ch._sorting_bucket == bucket
-                and ch.category_id == self.category_id
+                   and ch.category_id == self.category_id
             ]
         # fmt: on
 
@@ -1484,17 +1461,17 @@ class GuildChannel:
         await self._state.http.bulk_channel_update(self.guild.id, payload, reason=reason)
 
     async def create_invite(
-        self,
-        *,
-        reason: Optional[str] = None,
-        max_age: int = 0,
-        max_uses: int = 0,
-        temporary: bool = False,
-        unique: bool = True,
-        guest: bool = False,
-        target_type: Optional[InviteTarget] = None,
-        target_user: Optional[User] = None,
-        target_application: Optional[Snowflake] = None,
+            self,
+            *,
+            reason: Optional[str] = None,
+            max_age: int = 0,
+            max_uses: int = 0,
+            temporary: bool = False,
+            unique: bool = True,
+            guest: bool = False,
+            target_type: Optional[InviteTarget] = None,
+            target_user: Optional[User] = None,
+            target_application: Optional[Snowflake] = None,
     ) -> Invite:
         """|coro|
 
@@ -1661,7 +1638,8 @@ class Messageable:
         channel = await self._get_channel()
 
         mapped_files = {i: f for i, f in enumerate(files)}
-        data = await self._state.http.get_attachment_urls(channel.id, [f.to_upload_dict(i) for i, f in mapped_files.items()])
+        data = await self._state.http.get_attachment_urls(channel.id,
+                                                          [f.to_upload_dict(i) for i, f in mapped_files.items()])
         return [
             await CloudFile.from_file(state=state, data=uploaded, file=mapped_files[int(uploaded.get('id', 11))])
             for uploaded in data['attachments']
@@ -1669,91 +1647,91 @@ class Messageable:
 
     @overload
     async def send(
-        self,
-        content: Optional[str] = ...,
-        *,
-        tts: bool = ...,
-        file: _FileBase = ...,
-        stickers: Sequence[Union[GuildSticker, StickerItem]] = ...,
-        delete_after: float = ...,
-        nonce: Union[str, int] = ...,
-        allowed_mentions: AllowedMentions = ...,
-        reference: Union[Message, MessageReference, PartialMessage] = ...,
-        mention_author: bool = ...,
-        suppress_embeds: bool = ...,
-        silent: bool = ...,
+            self,
+            content: Optional[str] = ...,
+            *,
+            tts: bool = ...,
+            file: _FileBase = ...,
+            stickers: Sequence[Union[GuildSticker, StickerItem]] = ...,
+            delete_after: float = ...,
+            nonce: Union[str, int] = ...,
+            allowed_mentions: AllowedMentions = ...,
+            reference: Union[Message, MessageReference, PartialMessage] = ...,
+            mention_author: bool = ...,
+            suppress_embeds: bool = ...,
+            silent: bool = ...,
     ) -> Message:
         ...
 
     @overload
     async def send(
-        self,
-        content: Optional[str] = ...,
-        *,
-        tts: bool = ...,
-        files: Sequence[_FileBase] = ...,
-        stickers: Sequence[Union[GuildSticker, StickerItem]] = ...,
-        delete_after: float = ...,
-        nonce: Union[str, int] = ...,
-        allowed_mentions: AllowedMentions = ...,
-        reference: Union[Message, MessageReference, PartialMessage] = ...,
-        mention_author: bool = ...,
-        suppress_embeds: bool = ...,
-        silent: bool = ...,
+            self,
+            content: Optional[str] = ...,
+            *,
+            tts: bool = ...,
+            files: Sequence[_FileBase] = ...,
+            stickers: Sequence[Union[GuildSticker, StickerItem]] = ...,
+            delete_after: float = ...,
+            nonce: Union[str, int] = ...,
+            allowed_mentions: AllowedMentions = ...,
+            reference: Union[Message, MessageReference, PartialMessage] = ...,
+            mention_author: bool = ...,
+            suppress_embeds: bool = ...,
+            silent: bool = ...,
     ) -> Message:
         ...
 
     @overload
     async def send(
-        self,
-        content: Optional[str] = ...,
-        *,
-        tts: bool = ...,
-        file: _FileBase = ...,
-        stickers: Sequence[Union[GuildSticker, StickerItem]] = ...,
-        delete_after: float = ...,
-        nonce: Union[str, int] = ...,
-        allowed_mentions: AllowedMentions = ...,
-        reference: Union[Message, MessageReference, PartialMessage] = ...,
-        mention_author: bool = ...,
-        suppress_embeds: bool = ...,
-        silent: bool = ...,
+            self,
+            content: Optional[str] = ...,
+            *,
+            tts: bool = ...,
+            file: _FileBase = ...,
+            stickers: Sequence[Union[GuildSticker, StickerItem]] = ...,
+            delete_after: float = ...,
+            nonce: Union[str, int] = ...,
+            allowed_mentions: AllowedMentions = ...,
+            reference: Union[Message, MessageReference, PartialMessage] = ...,
+            mention_author: bool = ...,
+            suppress_embeds: bool = ...,
+            silent: bool = ...,
     ) -> Message:
         ...
 
     @overload
     async def send(
-        self,
-        content: Optional[str] = ...,
-        *,
-        tts: bool = ...,
-        files: Sequence[_FileBase] = ...,
-        stickers: Sequence[Union[GuildSticker, StickerItem]] = ...,
-        delete_after: float = ...,
-        nonce: Union[str, int] = ...,
-        allowed_mentions: AllowedMentions = ...,
-        reference: Union[Message, MessageReference, PartialMessage] = ...,
-        mention_author: bool = ...,
-        suppress_embeds: bool = ...,
-        silent: bool = ...,
+            self,
+            content: Optional[str] = ...,
+            *,
+            tts: bool = ...,
+            files: Sequence[_FileBase] = ...,
+            stickers: Sequence[Union[GuildSticker, StickerItem]] = ...,
+            delete_after: float = ...,
+            nonce: Union[str, int] = ...,
+            allowed_mentions: AllowedMentions = ...,
+            reference: Union[Message, MessageReference, PartialMessage] = ...,
+            mention_author: bool = ...,
+            suppress_embeds: bool = ...,
+            silent: bool = ...,
     ) -> Message:
         ...
 
     async def send(
-        self,
-        content: Optional[str] = None,
-        *,
-        tts: bool = False,
-        file: Optional[_FileBase] = None,
-        files: Optional[Sequence[_FileBase]] = None,
-        stickers: Optional[Sequence[Union[GuildSticker, StickerItem]]] = None,
-        delete_after: Optional[float] = None,
-        nonce: Optional[Union[str, int]] = MISSING,
-        allowed_mentions: Optional[AllowedMentions] = None,
-        reference: Optional[Union[Message, MessageReference, PartialMessage]] = None,
-        mention_author: Optional[bool] = None,
-        suppress_embeds: bool = False,
-        silent: bool = False,
+            self,
+            content: Optional[str] = None,
+            *,
+            tts: bool = False,
+            file: Optional[_FileBase] = None,
+            files: Optional[Sequence[_FileBase]] = None,
+            stickers: Optional[Sequence[Union[GuildSticker, StickerItem]]] = None,
+            delete_after: Optional[float] = None,
+            nonce: Optional[Union[str, int]] = MISSING,
+            allowed_mentions: Optional[AllowedMentions] = None,
+            reference: Optional[Union[Message, MessageReference, PartialMessage]] = None,
+            mention_author: Optional[bool] = None,
+            suppress_embeds: bool = False,
+            silent: bool = False,
     ) -> Message:
         """|coro|
 
@@ -1874,18 +1852,18 @@ class Messageable:
             flags = MISSING
 
         with handle_message_parameters(
-            content=content,
-            tts=tts,
-            file=file if file is not None else MISSING,
-            files=files if files is not None else MISSING,
-            nonce=nonce,
-            allowed_mentions=allowed_mentions,
-            message_reference=reference_dict,
-            previous_allowed_mentions=previous_allowed_mention,
-            mention_author=mention_author,
-            stickers=sticker_ids,
-            flags=flags,
-            network_type=NetworkConnectionType.unknown,
+                content=content,
+                tts=tts,
+                file=file if file is not None else MISSING,
+                files=files if files is not None else MISSING,
+                nonce=nonce,
+                allowed_mentions=allowed_mentions,
+                message_reference=reference_dict,
+                previous_allowed_mentions=previous_allowed_mention,
+                mention_author=mention_author,
+                stickers=sticker_ids,
+                flags=flags,
+                network_type=NetworkConnectionType.unknown,
         ) as params:
             data = await state.http.send_message(channel.id, params=params)
 
@@ -1896,12 +1874,12 @@ class Messageable:
         return ret
 
     async def greet(
-        self,
-        sticker: Union[GuildSticker, StickerItem],
-        *,
-        allowed_mentions: AllowedMentions = MISSING,
-        reference: Union[Message, MessageReference, PartialMessage] = MISSING,
-        mention_author: bool = MISSING,
+            self,
+            sticker: Union[GuildSticker, StickerItem],
+            *,
+            allowed_mentions: AllowedMentions = MISSING,
+            reference: Union[Message, MessageReference, PartialMessage] = MISSING,
+            mention_author: bool = MISSING,
     ) -> Message:
         """|coro|
 
@@ -2109,13 +2087,13 @@ class Messageable:
         return [state.create_message(channel=channel, data=m) for m in data]
 
     async def history(
-        self,
-        *,
-        limit: Optional[int] = 100,
-        before: Optional[SnowflakeTime] = None,
-        after: Optional[SnowflakeTime] = None,
-        around: Optional[SnowflakeTime] = None,
-        oldest_first: Optional[bool] = None,
+            self,
+            *,
+            limit: Optional[int] = 100,
+            before: Optional[SnowflakeTime] = None,
+            after: Optional[SnowflakeTime] = None,
+            around: Optional[SnowflakeTime] = None,
+            oldest_first: Optional[bool] = None,
     ) -> AsyncIterator[Message]:
         """Returns an :term:`asynchronous iterator` that enables receiving the destination's message history.
 
@@ -2273,27 +2251,27 @@ class Messageable:
                 break
 
     def search(
-        self,
-        content: str = MISSING,
-        *,
-        limit: Optional[int] = 25,
-        offset: int = 0,
-        before: SnowflakeTime = MISSING,
-        after: SnowflakeTime = MISSING,
-        authors: Collection[Snowflake] = MISSING,
-        author_types: Collection[MessageSearchAuthorType] = MISSING,
-        mentions: Collection[Snowflake] = MISSING,
-        mention_everyone: bool = MISSING,
-        pinned: bool = MISSING,
-        has: Collection[MessageSearchHasType] = MISSING,
-        embed_types: Collection[EmbedType] = MISSING,
-        embed_providers: Collection[str] = MISSING,
-        link_hostnames: Collection[str] = MISSING,
-        attachment_filenames: Collection[str] = MISSING,
-        attachment_extensions: Collection[str] = MISSING,
-        application_commands: Collection[Snowflake] = MISSING,
-        oldest_first: bool = False,
-        most_relevant: bool = False,
+            self,
+            content: str = MISSING,
+            *,
+            limit: Optional[int] = 25,
+            offset: int = 0,
+            before: SnowflakeTime = MISSING,
+            after: SnowflakeTime = MISSING,
+            authors: Collection[Snowflake] = MISSING,
+            author_types: Collection[MessageSearchAuthorType] = MISSING,
+            mentions: Collection[Snowflake] = MISSING,
+            mention_everyone: bool = MISSING,
+            pinned: bool = MISSING,
+            has: Collection[MessageSearchHasType] = MISSING,
+            embed_types: Collection[EmbedType] = MISSING,
+            embed_providers: Collection[str] = MISSING,
+            link_hostnames: Collection[str] = MISSING,
+            attachment_filenames: Collection[str] = MISSING,
+            attachment_extensions: Collection[str] = MISSING,
+            application_commands: Collection[Snowflake] = MISSING,
+            oldest_first: bool = False,
+            most_relevant: bool = False,
     ) -> AsyncIterator[Message]:
         """Returns an :term:`asynchronous iterator` that enables searching the channel's messages.
 
@@ -2414,91 +2392,13 @@ class Messageable:
             most_relevant=most_relevant,
         )
 
-    def slash_commands(
-        self,
-        query: Optional[str] = None,
-        *,
-        limit: Optional[int] = None,
-        command_ids: Optional[Collection[int]] = None,
-        application: Optional[Snowflake] = None,
-        with_applications: bool = True,
-    ) -> AsyncIterator[SlashCommand]:
-        """Returns a :term:`asynchronous iterator` of the slash commands available in the channel.
-
-        Examples
-        ---------
-
-        Usage ::
-
-            async for command in channel.slash_commands():
-                print(command.name)
-
-        Flattening into a list ::
-
-            commands = [command async for command in channel.slash_commands()]
-            # commands is now a list of SlashCommand...
-
-        All parameters are optional.
-
-        Parameters
-        ----------
-        query: Optional[:class:`str`]
-            The query to search for. Specifying this limits results to 25 commands max.
-
-            This parameter is faked if ``application`` is specified.
-        limit: Optional[:class:`int`]
-            The maximum number of commands to send back. Defaults to 0 if ``command_ids`` is passed, else 25.
-            If ``None``, returns all commands.
-
-            This parameter is faked if ``application`` is specified.
-        command_ids: Optional[List[:class:`int`]]
-            List of up to 100 command IDs to search for. If the command doesn't exist, it won't be returned.
-
-            If ``limit`` is passed alongside this parameter, this parameter will serve as a "preferred commands" list.
-            This means that the endpoint will return the found commands + up to ``limit`` more, if available.
-        application: Optional[:class:`~discord.abc.Snowflake`]
-            Whether to return this application's commands. Always set to DM recipient in a private channel context.
-        with_applications: :class:`bool`
-            Whether to include applications in the response. Defaults to ``True``.
-
-        Raises
-        ------
-        TypeError
-            Both query and command_ids are passed.
-            Attempted to fetch commands in a DM with a non-bot user.
-        ValueError
-            The limit was not greater than or equal to 0.
-        HTTPException
-            Getting the commands failed.
-        ~discord.Forbidden
-            You do not have permissions to get the commands.
-        ~discord.HTTPException
-            The request to get the commands failed.
-
-        Yields
-        -------
-        :class:`~discord.SlashCommand`
-            A slash command.
-        """
-        return _handle_commands(
-            self,
-            ApplicationCommandType.chat_input,
-            query=query,
-            limit=limit,
-            command_ids=command_ids,
-            application=application,
-            with_applications=with_applications,
-        )
-
     def user_commands(
-        self,
-        query: Optional[str] = None,
-        *,
-        limit: Optional[int] = None,
-        command_ids: Optional[Collection[int]] = None,
-        application: Optional[Snowflake] = None,
-        with_applications: bool = True,
-    ) -> AsyncIterator[UserCommand]:
+            self,
+            *,
+            query: Optional[str, Collection[str]] = None,
+            command_ids: Optional[int, Collection[int]] = None,
+            limit: Optional[int] = None,
+            application: Optional[Snowflake] = None) -> AsyncIterator[UserCommand]:
         """Returns a :term:`asynchronous iterator` of the user commands available to use on the user.
 
         Examples
@@ -2518,24 +2418,18 @@ class Messageable:
 
         Parameters
         ----------
-        query: Optional[:class:`str`]
-            The query to search for. Specifying this limits results to 25 commands max.
+        query: Optional[:class:`str`, Collection[:class:`str`]]
+            This can be single str or a list of str's to search for.
 
-            This parameter is faked if ``application`` is specified.
+        command_ids: Optional[:class:`int`, Collection[:class:`int`]]
+            This can be single command ID or a list of command IDs to search for.
+
         limit: Optional[:class:`int`]
-            The maximum number of commands to send back. Defaults to 0 if ``command_ids`` is passed, else 25.
+            The maximum number of commands to send back.
             If ``None``, returns all commands.
 
-            This parameter is faked if ``application`` is specified.
-        command_ids: Optional[List[:class:`int`]]
-            List of up to 100 command IDs to search for. If the command doesn't exist, it won't be returned.
-
-            If ``limit`` is passed alongside this parameter, this parameter will serve as a "preferred commands" list.
-            This means that the endpoint will return the found commands + up to ``limit`` more, if available.
         application: Optional[:class:`~discord.abc.Snowflake`]
             Whether to return this application's commands. Always set to DM recipient in a private channel context.
-        with_applications: :class:`bool`
-            Whether to include applications in the response. Defaults to ``True``.
 
         Raises
         ------
@@ -2556,14 +2450,82 @@ class Messageable:
         :class:`~discord.UserCommand`
             A user command.
         """
-        return _handle_commands(
+        return _handle_application_commands(
             self,
             ApplicationCommandType.user,
             query=query,
             limit=limit,
             command_ids=command_ids,
             application=application,
-            with_applications=with_applications,
+        )
+
+    def slash_commands(
+            self,
+            *,
+            query: Optional[str, Collection[str]] = None,
+            command_ids: Optional[int, Collection[int]] = None,
+            limit: Optional[int] = None,
+            application: Optional[Snowflake] = None) -> AsyncIterator[SlashCommand]:
+        """Returns a :term:`asynchronous iterator` of all the slash commands available in the channel.
+
+        Examples
+        ---------
+
+        Usage ::
+
+            async for command in channel.slash_commands():
+                print(command.name)
+
+        Flattening into a list ::
+
+            commands = [command async for command in channel.slash_commands()]
+            # commands is now a list of SlashCommand...
+
+        All parameters are optional.
+
+        Parameters
+        ----------
+        query: Optional[:class:`str`, Collection[:class:`str`]]
+            This can be single str or a list of str's to search for.
+
+        command_ids: Optional[:class:`int`, Collection[:class:`int`]]
+            This can be single command ID or a list of command IDs to search for.
+
+        limit: Optional[:class:`int`]
+            The maximum number of commands to send back.
+            If ``None``, returns all commands.
+
+        application: Optional[:class:`~discord.abc.Snowflake`]
+            Whether to return this application's commands.
+            Acts as a filter for a specific application.
+            Always set to DM recipient in a private channel context.
+
+        Raises
+        ------
+        TypeError
+            Attempted to fetch commands in a DM with a non-bot user.
+            Attempted to fetch commands in a DM Group with a non-bot user.
+        ValueError
+            The limit was not greater than or equal to 0.
+        HTTPException
+            Getting the commands failed.
+        ~discord.Forbidden
+            You do not have permissions to get the commands.
+        ~discord.HTTPException
+            The request to get the commands failed.
+
+        Yields
+        -------
+        :class:`~discord.SlashCommand`
+            A slash command.
+        """
+        return _handle_application_commands(
+            self,
+            ApplicationCommandType.chat_input,
+            query=query,
+            limit=limit,
+            command_ids=command_ids,
+            application=application
         )
 
 
@@ -2594,14 +2556,14 @@ class Connectable(Protocol):
         raise NotImplementedError
 
     async def connect(
-        self,
-        *,
-        timeout: float = 60.0,
-        reconnect: bool = True,
-        cls: Callable[[Client, VocalChannel], T] = VoiceClient,
-        _channel: Optional[Connectable] = None,
-        self_deaf: bool = False,
-        self_mute: bool = False,
+            self,
+            *,
+            timeout: float = 60.0,
+            reconnect: bool = True,
+            cls: Callable[[Client, VocalChannel], T] = VoiceClient,
+            _channel: Optional[Connectable] = None,
+            self_deaf: bool = False,
+            self_mute: bool = False,
     ) -> T:
         """|coro|
 
