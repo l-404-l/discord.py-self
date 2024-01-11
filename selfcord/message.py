@@ -67,7 +67,7 @@ from .threads import Thread
 from .channel import PartialMessageable
 from .interactions import Interaction
 from .commands import MessageCommand
-from .abc import _handle_commands
+from .abc import _handle_application_commands
 from .application import IntegrationApplication
 
 
@@ -2340,14 +2340,13 @@ class Message(PartialMessage, Hashable):
 
     def message_commands(
         self,
-        query: Optional[str] = None,
         *,
+        query: Optional[str] = None,
         limit: Optional[int] = None,
         command_ids: Optional[Collection[int]] = None,
         application: Optional[Snowflake] = None,
-        with_applications: bool = True,
     ) -> AsyncIterator[MessageCommand]:
-        """Returns a :term:`asynchronous iterator` of the message commands available to use on the message.
+        """Returns a :term:`asynchronous iterator` of all the message commands available to use on the message.
 
         Examples
         ---------
@@ -2366,37 +2365,33 @@ class Message(PartialMessage, Hashable):
 
         Parameters
         ----------
-        query: Optional[:class:`str`]
-            The query to search for. Specifying this limits results to 25 commands max.
+        query: Optional[:class:`str`, Collection[:class:`str`]]
+            This can be single str or a list of str's to search for.
 
-            This parameter is faked if ``application`` is specified.
+        command_ids: Optional[:class:`int`, Collection[:class:`int`]]
+            This can be single command ID or a list of command IDs to search for.
+
         limit: Optional[:class:`int`]
-            The maximum number of commands to send back. Defaults to 0 if ``command_ids`` is passed, else 25.
+            The maximum number of commands to send back.
             If ``None``, returns all commands.
 
-            This parameter is faked if ``application`` is specified.
-        command_ids: Optional[List[:class:`int`]]
-            List of up to 100 command IDs to search for. If the command doesn't exist, it won't be returned.
-
-            If ``limit`` is passed alongside this parameter, this parameter will serve as a "preferred commands" list.
-            This means that the endpoint will return the found commands + up to ``limit`` more, if available.
-        application: Optional[:class:`~selfcord.abc.Snowflake`]
-            Whether to return this application's commands. Always set to DM recipient in a private channel context.
-        with_applications: :class:`bool`
-            Whether to include applications in the response. Defaults to ``True``.
+        application: Optional[:class:`~discord.abc.Snowflake`]
+            Whether to return this application's commands.
+            Acts as a filter for a specific application.
+            Always set to DM recipient in a private channel context.
 
         Raises
         ------
         TypeError
-            Both query and command_ids are passed.
             Attempted to fetch commands in a DM with a non-bot user.
+            Attempted to fetch commands in a DM Group with a non-bot user.
         ValueError
             The limit was not greater than or equal to 0.
         HTTPException
             Getting the commands failed.
-        ~selfcord.Forbidden
+        ~discord.Forbidden
             You do not have permissions to get the commands.
-        ~selfcord.HTTPException
+        ~discord.HTTPException
             The request to get the commands failed.
 
         Yields
@@ -2404,13 +2399,12 @@ class Message(PartialMessage, Hashable):
         :class:`.MessageCommand`
             A message command.
         """
-        return _handle_commands(
+        return _handle_application_commands(
             self,
             ApplicationCommandType.message,
             query=query,
             limit=limit,
             command_ids=command_ids,
             application=application,
-            with_applications=with_applications,
             target=self,
         )
