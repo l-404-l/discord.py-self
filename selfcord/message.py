@@ -2375,7 +2375,7 @@ class Message(PartialMessage, Hashable):
             The maximum number of commands to send back.
             If ``None``, returns all commands.
 
-        application: Optional[:class:`~discord.abc.Snowflake`]
+        application: Optional[:class:`~selfcord.abc.Snowflake`]
             Whether to return this application's commands.
             Acts as a filter for a specific application.
             Always set to DM recipient in a private channel context.
@@ -2389,9 +2389,9 @@ class Message(PartialMessage, Hashable):
             The limit was not greater than or equal to 0.
         HTTPException
             Getting the commands failed.
-        ~discord.Forbidden
+        ~selfcord.Forbidden
             You do not have permissions to get the commands.
-        ~discord.HTTPException
+        ~selfcord.HTTPException
             The request to get the commands failed.
 
         Yields
