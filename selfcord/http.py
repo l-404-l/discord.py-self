@@ -1032,7 +1032,7 @@ class HTTPClient:
             raise HTTPException(response, data)
 
     async def get_preferred_voice_regions(self) -> List[dict]:
-        async with self.__session.get('https://latency.discord.media/rtc') as resp:
+        async with self.__session.get('https://latency.selfcord.media/rtc') as resp:
             if resp.status == 200:
                 return await resp.json()
             elif resp.status == 404:
