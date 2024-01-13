@@ -226,9 +226,6 @@ async def _handle_application_commands(
     cmd_ids = None if command_ids is None else ([command_ids] if isinstance(command_ids, int) else list(command_ids))
     search_query = None if query is None else (query.lower().split(",") if isinstance(query, str) else list(query))
 
-    print(f'CMD LIST: {cmd_ids}')
-    print(f'SEARCH LIST: {search_query}')
-
     application_id = application.id if application else None
     if channel.type == ChannelType.private:
         recipient: User = channel.recipient  # type: ignore
