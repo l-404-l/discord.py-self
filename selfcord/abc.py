@@ -230,11 +230,11 @@ async def _handle_application_commands(
     if channel.type == ChannelType.private:
         recipient: User = channel.recipient  # type: ignore
         if not recipient.bot:
-            raise TypeError('Cannot fetch commands in a DM with a non-bot user')
+            raise TypeError('Cannot fetch commands in a DM with a non-bot user.')
         application_id = recipient.id
         target = recipient
     elif channel.type == ChannelType.group:
-        raise TypeError('Cannot fetch commands in a Group Channel with a non-bot users')
+        raise TypeError('Cannot fetch commands in a Group Channel with a non-bot users.')
 
     data = await endpoint(channel.guild.id if channel.guild else channel.id)
 
